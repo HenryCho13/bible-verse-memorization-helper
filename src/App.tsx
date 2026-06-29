@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from 'react'
 import rawVerses from '../english_bible_verses_from_har.txt?raw'
 import { parseVerses } from './data/parseVerses'
 import { autoChunkBoundaries, chunksFromBoundaries, toggleBoundary, wordsOf } from './lib/chunks'
 import { clearRepair, createSession, rateCurrent, STAGES } from './lib/practice'
+import { gradeTypedRecall, normalizeRecallText } from './lib/recallGrading'
 import { addWeeks, formatWeekRange, getWeekKey, nextBoundary, verseForWeek } from './lib/schedule'
 import { emptyStore, loadStore, saveStore } from './lib/storage'
 import type { AppStore, PracticeSession, Rating, Verse } from './types'
+import type { TypedRecallGrade } from './lib/recallGrading'
 
 let catalog: Verse[] = []
 let catalogError = ''
@@ -16,6 +18,14 @@ try {
 }
 
 const buttonBase = 'rounded-xl px-4 py-3 font-bold transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-river-500/30 disabled:opacity-40'
+const EVENT_PATH = '/event/2026-ec-yao-retreat-2'
+const EVENT_SESSION_KEY = 'event:2026-ec-yao-retreat-2'
+const eventVerse: Verse = {
+  id: 10001,
+  topic: 'One-time memorization',
+  reference: 'Joel 2:28-32',
+  text: 'And it shall come to pass afterward That I will pour out My Spirit on all flesh; Your sons and your daughters shall prophesy, Your old men shall dream dreams, Your young men shall see visions. And also on My menservants and on My maidservants I will pour out My Spirit in those days. And I will show wonders in the heavens and in the earth: Blood and fire and pillars of smoke. The sun shall be turned into darkness, And the moon into blood, Before the coming of the great and awesome day of the LORD. And it shall come to pass That whoever calls on the name of the LORD Shall be saved. For in Mount Zion and in Jerusalem there shall be deliverance, As the LORD has said, Among the remnant whom the LORD calls.',
+}
 
 function App() {
   const [store, setStore] = useState<AppStore>(() => loadStore())
@@ -41,6 +51,10 @@ function App() {
     if (viewedWeek === previousCurrent.current) setViewedWeek(currentWeek)
     previousCurrent.current = currentWeek
   }, [currentWeek, viewedWeek])
+
+  if (window.location.pathname === EVENT_PATH) {
+    return <EventMemorization store={store} setStore={setStore} />
+  }
 
   if (catalogError) return <CatalogError message={catalogError} />
   if (!store.plan) {
@@ -113,6 +127,53 @@ function App() {
             key={`${viewedWeek}-${verse.id}`}
             verse={verse}
             initialBoundaries={store.chunkPreferences[verse.id] ?? autoChunkBoundaries(verse.text)}
+            onStart={startSession}
+          />
+        )}
+      </main>
+    </div>
+  )
+}
+
+function EventMemorization({ store, setStore }: { store: AppStore; setStore: Dispatch<SetStateAction<AppStore>> }) {
+  const session = store.sessions[EVENT_SESSION_KEY]?.verseId === eventVerse.id ? store.sessions[EVENT_SESSION_KEY] : undefined
+
+  const updateSession = (next: PracticeSession) => {
+    setStore((current) => ({ ...current, sessions: { ...current.sessions, [EVENT_SESSION_KEY]: next } }))
+  }
+
+  const startSession = (boundaries: number[]) => {
+    const next = createSession(EVENT_SESSION_KEY, eventVerse.id, eventVerse.text, boundaries)
+    setStore((current) => ({
+      ...current,
+      chunkPreferences: { ...current.chunkPreferences, [eventVerse.id]: boundaries },
+      sessions: { ...current.sessions, [EVENT_SESSION_KEY]: next },
+    }))
+  }
+
+  const restartSession = () => {
+    if (!session || !window.confirm(`Restart your practice for ${eventVerse.reference}?`)) return
+    updateSession(createSession(EVENT_SESSION_KEY, eventVerse.id, eventVerse.text, session.boundaries))
+  }
+
+  return (
+    <div className="app-background min-h-screen text-ink-900">
+      <header className="glass-header sticky top-0 z-20 border-b">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-5 sm:py-6 lg:px-8">
+          <p className="text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">One-time memorization</p>
+          <h1 className="mt-2 font-serif text-3xl leading-tight font-bold sm:text-5xl">{eventVerse.reference}</h1>
+          <p className="mt-2 text-sm font-semibold text-ink-700">2026 EC YAO Retreat 2</p>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 py-5 sm:px-5 sm:py-7 lg:px-8 lg:py-10">
+        {session ? (
+          <PracticeWorkspace session={session} verse={eventVerse} onUpdate={updateSession} onRestart={restartSession} />
+        ) : (
+          <ChunkSetup
+            key={EVENT_SESSION_KEY}
+            verse={eventVerse}
+            initialBoundaries={store.chunkPreferences[eventVerse.id] ?? autoChunkBoundaries(eventVerse.text)}
             onStart={startSession}
           />
         )}
@@ -343,17 +404,50 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
 }
 
 function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession['units'][string]; chunks: string[]; progress: PracticeSession['progress'][string]; onRate: (rating: Rating, troubleChunk?: number) => void }) {
-  const [phase, setPhase] = useState<'study' | 'recall' | 'check'>('study')
+  const [phase, setPhase] = useState<'study' | 'recall' | 'typing' | 'typed-result' | 'check'>('study')
   const [pendingRating, setPendingRating] = useState<'again' | 'hard'>()
+  const [typedAnswer, setTypedAnswer] = useState('')
+  const [typedGrade, setTypedGrade] = useState<TypedRecallGrade>()
+  const [selectedRating, setSelectedRating] = useState<Rating>('again')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const rate = (rating: Rating) => {
     if (rating !== 'got-it' && unit.chunkIndexes.length > 1) setPendingRating(rating)
     else onRate(rating, rating === 'got-it' ? undefined : unit.chunkIndexes[0])
   }
 
+  const startTyping = () => {
+    setPhase('typing')
+    window.setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  const submitTypedAnswer = () => {
+    const grade = gradeTypedRecall(unit.text, typedAnswer)
+    setTypedGrade(grade)
+    setSelectedRating(grade.rating)
+    setPhase('typed-result')
+  }
+
+  const typedTroubleChunk = () => {
+    if (!typedGrade || selectedRating === 'got-it') return undefined
+    const wordIndex = typedGrade.troubleExpectedWordIndex ?? 0
+
+    if (unit.id.startsWith('transition-') && unit.chunkIndexes.length === 2) {
+      const firstChunkWords = Math.min(3, normalizeRecallText(chunks[unit.chunkIndexes[0]]).length)
+      return wordIndex < firstChunkWords ? unit.chunkIndexes[0] : unit.chunkIndexes[1]
+    }
+
+    let wordsSeen = 0
+    for (const chunkIndex of unit.chunkIndexes) {
+      wordsSeen += normalizeRecallText(chunks[chunkIndex]).length
+      if (wordIndex < wordsSeen) return chunkIndex
+    }
+    return unit.chunkIndexes.at(-1) ?? unit.chunkIndexes[0]
+  }
+
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || pendingRating) return
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLButtonElement || pendingRating) return
       if (event.code === 'Space') {
         event.preventDefault()
         if (phase === 'study') setPhase('recall')
@@ -374,16 +468,37 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
           <p className="text-xs font-extrabold tracking-[0.16em] text-ink-700 uppercase">{unit.checkpoint ? 'Interleaved checkpoint' : unit.label}</p>
           <p className="mt-1 text-xs text-ink-700">Clean recalls: {progress.streak}/{unit.requiredStreak}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${phase === 'study' ? 'bg-river-100 text-river-600' : phase === 'recall' ? 'bg-amber-100 text-amber-800' : 'bg-leaf-100 text-leaf-600'}`}>{phase === 'study' ? 'Study' : phase === 'recall' ? 'Covered' : 'Check'}</span>
+        <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${phase === 'study' ? 'bg-river-100 text-river-600' : phase === 'recall' || phase === 'typing' ? 'bg-amber-100 text-amber-800' : 'bg-leaf-100 text-leaf-600'}`}>
+          {phase === 'study' ? 'Study' : phase === 'recall' ? 'Covered' : phase === 'typing' ? 'Type' : 'Check'}
+        </span>
       </div>
 
-      <div className={`grid min-h-[280px] place-items-center p-5 text-center sm:min-h-[340px] sm:p-12 ${phase === 'recall' ? 'bg-ink-900/92 text-white backdrop-blur-2xl' : 'glass-strong'}`}>
+      <div className={`grid min-h-[280px] place-items-center p-5 text-center sm:min-h-[340px] sm:p-12 ${phase === 'recall' || phase === 'typing' ? 'bg-ink-900/92 text-white backdrop-blur-2xl' : 'glass-strong'}`}>
         {phase === 'recall' ? (
           <div>
             <p className="text-xs font-extrabold tracking-[0.2em] text-paper-300 uppercase">No peeking</p>
             <h3 className="mt-4 font-serif text-4xl font-bold">Say it out loud.</h3>
-            <p className="mt-4 text-paper-300">Retrieve the words, then reveal the text to check yourself.</p>
+            <p className="mt-4 text-paper-300">Retrieve the words, then reveal the text or type your answer.</p>
           </div>
+        ) : phase === 'typing' ? (
+          <form id={`typed-recall-${unit.id}`} className="w-full max-w-2xl text-left" onSubmit={(event) => { event.preventDefault(); submitTypedAnswer() }}>
+            <label htmlFor={`typed-answer-${unit.id}`} className="block text-xs font-extrabold tracking-[0.2em] text-paper-300 uppercase">Type from memory</label>
+            <textarea
+              ref={textareaRef}
+              id={`typed-answer-${unit.id}`}
+              value={typedAnswer}
+              onChange={(event) => setTypedAnswer(event.target.value)}
+              rows={7}
+              autoComplete="off"
+              autoCapitalize="sentences"
+              spellCheck={false}
+              placeholder="Type the passage here…"
+              className="mt-4 w-full resize-y rounded-2xl border border-white/20 bg-white/10 p-4 text-lg leading-relaxed text-white outline-none placeholder:text-paper-300/60 focus:border-river-500 focus:ring-3 focus:ring-river-500/30"
+            />
+            <p className="mt-3 text-sm text-paper-300">Capitalization, punctuation, and extra spaces do not affect your score.</p>
+          </form>
+        ) : phase === 'typed-result' && typedGrade ? (
+          <TypedRecallReview grade={typedGrade} selectedRating={selectedRating} />
         ) : (
           <div>
             <p className="font-serif text-2xl leading-snug font-bold sm:text-4xl">{unit.text}</p>
@@ -410,7 +525,27 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
         ) : phase === 'study' ? (
           <button onClick={() => setPhase('recall')} className={`${buttonBase} w-full bg-river-600 text-white hover:bg-river-500`}>Cover & recall <span className="ml-2 hidden text-white/60 sm:inline">Space</span></button>
         ) : phase === 'recall' ? (
-          <button onClick={() => setPhase('check')} className={`${buttonBase} w-full bg-white text-ink-900 ring-1 ring-paper-300 hover:bg-paper-100`}>Reveal & check <span className="ml-2 hidden text-ink-700/60 sm:inline">Space</span></button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button onClick={startTyping} className={`${buttonBase} bg-river-600 text-white hover:bg-river-500`}>Type your answer</button>
+            <button onClick={() => setPhase('check')} className={`${buttonBase} bg-white text-ink-900 ring-1 ring-paper-300 hover:bg-paper-100`}>Reveal & check <span className="ml-2 hidden text-ink-700/60 sm:inline">Space</span></button>
+          </div>
+        ) : phase === 'typing' ? (
+          <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
+            <button onClick={() => setPhase('recall')} className={`${buttonBase} bg-paper-200 text-ink-900 hover:bg-paper-300`}>Cancel</button>
+            <button type="submit" form={`typed-recall-${unit.id}`} className={`${buttonBase} bg-river-600 text-white hover:bg-river-500`}>Check my answer</button>
+          </div>
+        ) : phase === 'typed-result' && typedGrade ? (
+          <div>
+            <fieldset>
+              <legend className="mb-3 w-full text-center text-sm font-bold text-ink-700">Assigned pile — change it if needed</legend>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <RatingChoice rating="again" selected={selectedRating === 'again'} onSelect={setSelectedRating} />
+                <RatingChoice rating="hard" selected={selectedRating === 'hard'} onSelect={setSelectedRating} />
+                <RatingChoice rating="got-it" selected={selectedRating === 'got-it'} onSelect={setSelectedRating} />
+              </div>
+            </fieldset>
+            <button onClick={() => onRate(selectedRating, typedTroubleChunk())} className={`${buttonBase} mt-3 w-full bg-ink-900 text-white hover:bg-ink-700`}>Continue with {ratingLabel(selectedRating)} →</button>
+          </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-3">
             <button onClick={() => rate('again')} className={`${buttonBase} bg-rose-100 text-rose-800 hover:bg-rose-200`}>Again <span className="ml-1 hidden opacity-50 sm:inline">1</span></button>
@@ -419,6 +554,67 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function ratingLabel(rating: Rating) {
+  return rating === 'got-it' ? 'Got it' : rating === 'hard' ? 'Hard' : 'Again'
+}
+
+function RatingChoice({ rating, selected, onSelect }: { rating: Rating; selected: boolean; onSelect: (rating: Rating) => void }) {
+  const colors = rating === 'again'
+    ? 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+    : rating === 'hard'
+      ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+      : 'bg-leaf-600 text-white hover:bg-leaf-500'
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={() => onSelect(rating)}
+      className={`${buttonBase} ${colors} ${selected ? 'ring-3 ring-river-500/40' : 'opacity-65'}`}
+    >
+      {ratingLabel(rating)}
+    </button>
+  )
+}
+
+function TypedRecallReview({ grade, selectedRating }: { grade: TypedRecallGrade; selectedRating: Rating }) {
+  const expectedTokens = grade.alignment.filter((token) => token.expected)
+  const actualTokens = grade.alignment.filter((token) => token.actual)
+  return (
+    <div className="w-full max-w-3xl text-left" aria-live="polite">
+      <div className="text-center">
+        <p className="text-xs font-extrabold tracking-[0.18em] text-leaf-600 uppercase">Automatic result</p>
+        <h3 className="mt-2 font-serif text-3xl font-bold">{ratingLabel(selectedRating)}</h3>
+        <p className="mt-2 text-sm text-ink-700">{grade.editDistance === 0 ? 'Exact words after ignoring punctuation and capitalization.' : `${grade.editDistance} word ${grade.editDistance === 1 ? 'difference' : 'differences'} · Hard allows up to ${grade.hardErrorAllowance}.`}</p>
+      </div>
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <DiffLine label="Expected" tokens={expectedTokens} side="expected" />
+        <DiffLine label="Your answer" tokens={actualTokens} side="actual" emptyText="No words entered" />
+      </div>
+      <div className="mt-4 flex flex-wrap justify-center gap-3 text-xs font-bold text-ink-700">
+        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-rose-300" />Missing or different</span>
+        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-amber-300" />Extra</span>
+      </div>
+    </div>
+  )
+}
+
+function DiffLine({ label, tokens, side, emptyText }: { label: string; tokens: TypedRecallGrade['alignment']; side: 'expected' | 'actual'; emptyText?: string }) {
+  return (
+    <div className="rounded-2xl border border-paper-300 bg-white p-4">
+      <p className="text-xs font-extrabold tracking-wider text-ink-700 uppercase">{label}</p>
+      <p className="mt-3 font-serif text-lg leading-loose">
+        {tokens.length === 0 && <span className="font-sans text-sm text-ink-700 italic">{emptyText}</span>}
+        {tokens.map((token, index) => {
+          const text = side === 'expected' ? token.expected : token.actual
+          const changed = token.kind === 'substitution' || token.kind === 'missing'
+          const extra = token.kind === 'extra'
+          return <span key={`${index}-${text}`} className={`mr-1 rounded px-1 py-0.5 ${changed ? 'bg-rose-100 text-rose-900' : extra ? 'bg-amber-100 text-amber-900' : ''}`}>{text}</span>
+        })}
+      </p>
     </div>
   )
 }
