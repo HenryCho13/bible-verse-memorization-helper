@@ -40,19 +40,44 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /I Thessalonians 5:14-15/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Start memorizing →' }))
     fireEvent.click(screen.getByRole('button', { name: /Cover & recall/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Type your answer' }))
+    fireEvent.click(screen.getByRole('button', { name: /Type your answer/ }))
 
     const answer = screen.getByRole('textbox', { name: 'Type from memory' })
     fireEvent.keyDown(answer, { code: 'Space', key: ' ' })
     expect(answer).toBeInTheDocument()
     fireEvent.change(answer, { target: { value: 'now we exhort you brethren warn those who are unruly' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Check my answer' }))
+    fireEvent.click(screen.getByRole('button', { name: /Check my answer/ }))
 
     expect(screen.getByRole('heading', { name: 'Got it' })).toBeInTheDocument()
     expect(screen.getByText('Exact words after ignoring punctuation and capitalization.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Hard' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue with Hard →' }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue with Hard/ }))
+    expect(screen.getByText('Targeted correction')).toBeInTheDocument()
+  })
+
+  it('supports keyboard-only typed recall shortcuts', () => {
+    render(<App />)
+
+    fireEvent.change(screen.getByPlaceholderText('Search reference or words…'), { target: { value: 'I Thessalonians 5:14-15' } })
+    fireEvent.click(screen.getByRole('button', { name: /I Thessalonians 5:14-15/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start memorizing →' }))
+
+    fireEvent.keyDown(document, { code: 'Space', key: ' ' })
+    expect(screen.getByText('Say it out loud.')).toBeInTheDocument()
+    fireEvent.keyDown(document, { code: 'Enter', key: 'Enter' })
+
+    const answer = screen.getByRole('textbox', { name: 'Type from memory' })
+    fireEvent.change(answer, { target: { value: 'now we exhort you brethren warn those who are unruly' } })
+    fireEvent.keyDown(answer, { code: 'Enter', key: 'Enter', shiftKey: true })
+    expect(screen.queryByRole('heading', { name: 'Got it' })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(answer, { code: 'Enter', key: 'Enter' })
+    expect(screen.getByRole('heading', { name: 'Got it' })).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { code: 'Digit2', key: '2' })
+    expect(screen.getByRole('button', { name: /Continue with Hard/ })).toBeInTheDocument()
+    fireEvent.keyDown(document, { code: 'Enter', key: 'Enter' })
     expect(screen.getByText('Targeted correction')).toBeInTheDocument()
   })
 

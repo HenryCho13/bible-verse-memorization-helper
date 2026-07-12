@@ -428,6 +428,10 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
     setPhase('typed-result')
   }
 
+  const continueTypedResult = () => {
+    onRate(selectedRating, typedTroubleChunk())
+  }
+
   const typedTroubleChunk = () => {
     if (!typedGrade || selectedRating === 'got-it') return undefined
     const wordIndex = typedGrade.troubleExpectedWordIndex ?? 0
@@ -453,9 +457,21 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
         if (phase === 'study') setPhase('recall')
         else if (phase === 'recall') setPhase('check')
       }
+      if (event.key === 'Enter') {
+        if (phase === 'recall') {
+          event.preventDefault()
+          startTyping()
+        } else if (phase === 'typed-result') {
+          event.preventDefault()
+          continueTypedResult()
+        }
+      }
       if (phase === 'check' && event.key === '1') rate('again')
       if (phase === 'check' && event.key === '2') rate('hard')
       if (phase === 'check' && event.key === '3') rate('got-it')
+      if (phase === 'typed-result' && event.key === '1') setSelectedRating('again')
+      if (phase === 'typed-result' && event.key === '2') setSelectedRating('hard')
+      if (phase === 'typed-result' && event.key === '3') setSelectedRating('got-it')
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
@@ -488,6 +504,12 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
               id={`typed-answer-${unit.id}`}
               value={typedAnswer}
               onChange={(event) => setTypedAnswer(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  submitTypedAnswer()
+                }
+              }}
               rows={7}
               autoComplete="off"
               autoCapitalize="sentences"
@@ -523,16 +545,16 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
             </div>
           </div>
         ) : phase === 'study' ? (
-          <button onClick={() => setPhase('recall')} className={`${buttonBase} w-full bg-river-600 text-white hover:bg-river-500`}>Cover & recall <span className="ml-2 hidden text-white/60 sm:inline">Space</span></button>
+          <button onClick={() => setPhase('recall')} aria-keyshortcuts="Space" className={`${buttonBase} w-full bg-river-600 text-white hover:bg-river-500`}>Cover & recall <span aria-hidden="true" className="ml-2 hidden text-white/60 sm:inline">Space</span></button>
         ) : phase === 'recall' ? (
           <div className="grid gap-2 sm:grid-cols-2">
-            <button onClick={startTyping} className={`${buttonBase} bg-river-600 text-white hover:bg-river-500`}>Type your answer</button>
-            <button onClick={() => setPhase('check')} className={`${buttonBase} bg-white text-ink-900 ring-1 ring-paper-300 hover:bg-paper-100`}>Reveal & check <span className="ml-2 hidden text-ink-700/60 sm:inline">Space</span></button>
+            <button onClick={startTyping} aria-keyshortcuts="Enter" className={`${buttonBase} bg-river-600 text-white hover:bg-river-500`}>Type your answer <span aria-hidden="true" className="ml-2 hidden text-white/60 sm:inline">Enter</span></button>
+            <button onClick={() => setPhase('check')} aria-keyshortcuts="Space" className={`${buttonBase} bg-white text-ink-900 ring-1 ring-paper-300 hover:bg-paper-100`}>Reveal & check <span aria-hidden="true" className="ml-2 hidden text-ink-700/60 sm:inline">Space</span></button>
           </div>
         ) : phase === 'typing' ? (
           <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
             <button onClick={() => setPhase('recall')} className={`${buttonBase} bg-paper-200 text-ink-900 hover:bg-paper-300`}>Cancel</button>
-            <button type="submit" form={`typed-recall-${unit.id}`} className={`${buttonBase} bg-river-600 text-white hover:bg-river-500`}>Check my answer</button>
+            <button type="submit" form={`typed-recall-${unit.id}`} aria-keyshortcuts="Enter" className={`${buttonBase} bg-river-600 text-white hover:bg-river-500`}>Check my answer <span aria-hidden="true" className="ml-2 hidden text-white/60 sm:inline">Enter</span></button>
           </div>
         ) : phase === 'typed-result' && typedGrade ? (
           <div>
@@ -544,13 +566,13 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
                 <RatingChoice rating="got-it" selected={selectedRating === 'got-it'} onSelect={setSelectedRating} />
               </div>
             </fieldset>
-            <button onClick={() => onRate(selectedRating, typedTroubleChunk())} className={`${buttonBase} mt-3 w-full bg-ink-900 text-white hover:bg-ink-700`}>Continue with {ratingLabel(selectedRating)} →</button>
+            <button onClick={continueTypedResult} aria-keyshortcuts="Enter" className={`${buttonBase} mt-3 w-full bg-ink-900 text-white hover:bg-ink-700`}>Continue with {ratingLabel(selectedRating)} → <span aria-hidden="true" className="ml-2 hidden text-white/60 sm:inline">Enter</span></button>
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-3">
-            <button onClick={() => rate('again')} className={`${buttonBase} bg-rose-100 text-rose-800 hover:bg-rose-200`}>Again <span className="ml-1 hidden opacity-50 sm:inline">1</span></button>
-            <button onClick={() => rate('hard')} className={`${buttonBase} bg-amber-100 text-amber-900 hover:bg-amber-200`}>Hard <span className="ml-1 hidden opacity-50 sm:inline">2</span></button>
-            <button onClick={() => rate('got-it')} className={`${buttonBase} bg-leaf-600 text-white hover:bg-leaf-500`}>Got it <span className="ml-1 hidden opacity-60 sm:inline">3</span></button>
+            <button onClick={() => rate('again')} aria-keyshortcuts="1" className={`${buttonBase} bg-rose-100 text-rose-800 hover:bg-rose-200`}>Again <span aria-hidden="true" className="ml-1 hidden opacity-50 sm:inline">1</span></button>
+            <button onClick={() => rate('hard')} aria-keyshortcuts="2" className={`${buttonBase} bg-amber-100 text-amber-900 hover:bg-amber-200`}>Hard <span aria-hidden="true" className="ml-1 hidden opacity-50 sm:inline">2</span></button>
+            <button onClick={() => rate('got-it')} aria-keyshortcuts="3" className={`${buttonBase} bg-leaf-600 text-white hover:bg-leaf-500`}>Got it <span aria-hidden="true" className="ml-1 hidden opacity-60 sm:inline">3</span></button>
           </div>
         )}
       </div>
