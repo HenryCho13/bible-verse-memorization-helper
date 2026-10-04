@@ -3,7 +3,7 @@ import type { AppStore } from '../types'
 export const STORE_KEY = 'verse-memory-v2'
 
 export function emptyStore(): AppStore {
-  return { version: 2, chunkPreferences: {}, sessions: {} }
+  return { version: 2, chunkPreferences: {}, sessions: {}, personalVerses: [] }
 }
 
 export function loadStore(): AppStore {
@@ -15,6 +15,7 @@ export function loadStore(): AppStore {
       plan: parsed.plan,
       chunkPreferences: parsed.chunkPreferences && typeof parsed.chunkPreferences === 'object' ? parsed.chunkPreferences : {},
       sessions: parsed.sessions && typeof parsed.sessions === 'object' ? parsed.sessions : {},
+      personalVerses: Array.isArray(parsed.personalVerses) ? parsed.personalVerses : [],
     }
   } catch {
     return emptyStore()

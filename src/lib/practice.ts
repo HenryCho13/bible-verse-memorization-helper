@@ -145,3 +145,14 @@ export function clearRepair(session: PracticeSession): PracticeSession {
   delete next.repair
   return next
 }
+
+export function skipToStage(session: PracticeSession, chunks: string[], target = session.stageIndex + 1): PracticeSession {
+  if (session.completedAt || target <= session.stageIndex || target >= STAGES.length) return session
+  return {
+    ...session,
+    stageIndex: target,
+    ...stageState(target, chunks),
+    repair: undefined,
+    skippedStages: [...new Set([...(session.skippedStages ?? []), ...STAGES.slice(session.stageIndex, target).map((stage) => stage.id)])],
+  }
+}

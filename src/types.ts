@@ -52,6 +52,7 @@ export interface PracticeSession {
   attempts: Attempt[]
   repair?: Repair
   completedAt?: string
+  skippedStages?: StageId[]
 }
 
 export interface AppStore {
@@ -59,4 +60,5 @@ export interface AppStore {
   plan?: WeeklyPlan
   chunkPreferences: Record<string, number[]>
   sessions: Record<string, PracticeSession>
+  personalVerses: Verse[]
 }

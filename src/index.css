@@ -40,7 +40,7 @@ body {
     linear-gradient(145deg, #eef8ff 0%, #eef0ff 48%, #f7fbff 100%);
   background-attachment: fixed;
 }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 button:disabled { cursor: not-allowed; }
 

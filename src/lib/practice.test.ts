@@ -1,12 +1,34 @@
 import { describe, expect, it } from 'vitest'
 import { chunksFromBoundaries } from './chunks'
-import { createSession, rateCurrent, STAGES, unitsForStage } from './practice'
+import { createSession, rateCurrent, skipToStage, STAGES, unitsForStage } from './practice'
 
 const text = 'one two three four five six seven eight nine ten eleven twelve'
 const boundaries = [3, 6, 9]
 const chunks = chunksFromBoundaries(text, boundaries)
 
 describe('practice progression', () => {
+  it('skips a stage without recording mastery or losing earlier attempts', () => {
+    const session = rateCurrent(createSession('2026-06-21', 1, text, boundaries), chunks, 'again', 0)
+    const next = skipToStage(session, chunks)
+    expect(next.stageIndex).toBe(1)
+    expect(next.skippedStages).toEqual(['chunks'])
+    expect(next.repair).toBeUndefined()
+    expect(next.attempts).toEqual(session.attempts)
+    expect(Object.values(next.progress).every((progress) => !progress.mastered && progress.attempts === 0)).toBe(true)
+  })
+
+  it('requires actual full recalls after jumping to the last stage', () => {
+    let session = skipToStage(createSession('2026-06-21', 1, text, boundaries), chunks, 5)
+    expect(session.skippedStages).toHaveLength(5)
+    expect(skipToStage(session, chunks)).toBe(session)
+    expect(session.completedAt).toBeUndefined()
+    session = rateCurrent(session, chunks, 'got-it')
+    expect(session.queue[0]).toBe('full-checkpoint')
+    session = rateCurrent(session, chunks, 'got-it')
+    expect(session.completedAt).toBeUndefined()
+    session = rateCurrent(session, chunks, 'got-it')
+    expect(session.completedAt).toBeTruthy()
+  })
   it('builds the requested assembly stages', () => {
     expect(unitsForStage('chunks', chunks).map((unit) => unit.chunkIndexes)).toEqual([[0], [1], [2], [3]])
     expect(unitsForStage('pairs', chunks).map((unit) => unit.chunkIndexes)).toEqual([[0, 1], [2, 3]])

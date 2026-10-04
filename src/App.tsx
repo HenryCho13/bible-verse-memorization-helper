@@ -2,11 +2,13 @@ import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useStat
 import rawVerses from '../english_bible_verses_from_har.txt?raw'
 import { parseVerses } from './data/parseVerses'
 import { autoChunkBoundaries, chunksFromBoundaries, toggleBoundary, wordsOf } from './lib/chunks'
-import { clearRepair, createSession, rateCurrent, STAGES } from './lib/practice'
+import { clearRepair, createSession, rateCurrent, skipToStage, STAGES } from './lib/practice'
 import { gradeTypedRecall, normalizeRecallText } from './lib/recallGrading'
 import { addWeeks, formatWeekRange, getWeekKey, nextBoundary, verseForWeek } from './lib/schedule'
-import { emptyStore, loadStore, saveStore } from './lib/storage'
+import { loadStore, saveStore } from './lib/storage'
 import type { AppStore, PracticeSession, Rating, Verse } from './types'
+import { PersonalLibrary } from './components/PersonalLibrary'
+import { mergePersonalVerses } from './data/importVerses'
 import type { TypedRecallGrade } from './lib/recallGrading'
 
 let catalog: Verse[] = []
@@ -27,13 +29,71 @@ const eventVerse: Verse = {
   text: 'And it shall come to pass afterward That I will pour out My Spirit on all flesh; Your sons and your daughters shall prophesy, Your old men shall dream dreams, Your young men shall see visions. And also on My menservants and on My maidservants I will pour out My Spirit in those days. And I will show wonders in the heavens and in the earth: Blood and fire and pillars of smoke. The sun shall be turned into darkness, And the moon into blood, Before the coming of the great and awesome day of the LORD. And it shall come to pass That whoever calls on the name of the LORD Shall be saved. For in Mount Zion and in Jerusalem there shall be deliverance, As the LORD has said, Among the remnant whom the LORD calls.',
 }
 
+type AppTab = 'practice' | 'personal' | 'reading'
+const tabs: { id: AppTab; label: string }[] = [
+  { id: 'practice', label: 'Weekly practice' },
+  { id: 'personal', label: 'My verses' },
+  { id: 'reading', label: 'Weekly reading' },
+]
+function currentTab(): AppTab {
+  return tabs.find((tab) => window.location.hash === `#${tab.id}`)?.id ?? 'practice'
+}
+
 function App() {
   const [store, setStore] = useState<AppStore>(() => loadStore())
+  const [tab, setTab] = useState<AppTab>(currentTab)
+  const [personalId, setPersonalId] = useState<number>()
+  useEffect(() => saveStore(store), [store])
+  useEffect(() => {
+    const update = () => setTab(currentTab())
+    window.addEventListener('hashchange', update)
+    return () => window.removeEventListener('hashchange', update)
+  }, [])
+  const navigate = (next: AppTab) => { window.location.hash = next; setTab(next) }
+  if (window.location.pathname === EVENT_PATH) {
+    return <SavedMemorization store={store} setStore={setStore} verse={eventVerse} sessionKey={EVENT_SESSION_KEY} title="2026 EC YAO Retreat 2" />
+  }
+  const personalVerse = store.personalVerses.find((verse) => verse.id === personalId)
+  return <div className="app-background min-h-screen text-ink-900">
+    <nav aria-label="Main navigation" className="glass-header border-b px-3 py-3 sm:px-5">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <span className="px-1 text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">Verse Memory</span>
+        <div className="grid grid-cols-3 gap-1 rounded-2xl bg-paper-200/60 p-1">
+          {tabs.map((item) => <a key={item.id} href={`#${item.id}`} aria-current={tab === item.id ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigate(item.id) }} className={`flex min-h-12 items-center justify-center rounded-xl px-3 py-2 text-center text-sm font-bold transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-river-500/30 ${tab === item.id ? 'bg-white text-river-600 shadow-sm' : 'text-ink-700 hover:bg-white/60'}`}>{item.label}</a>)}
+        </div>
+      </div>
+    </nav>
+    {tab !== 'personal' ? (
+      <WeeklyMemorization store={store} setStore={setStore} reading={tab === 'reading'} onChoosePlan={() => navigate('practice')} />
+    ) : personalVerse ? (
+      <SavedMemorization
+        key={personalVerse.id}
+        store={store}
+        setStore={setStore}
+        verse={personalVerse}
+        sessionKey={`personal:${personalVerse.id}`}
+        title="My verses"
+        onBack={() => setPersonalId(undefined)}
+      />
+    ) : (
+      <PersonalLibrary
+        verses={store.personalVerses}
+        onPractice={(verse) => setPersonalId(verse.id)}
+        onImport={(imported) => {
+          const merged = mergePersonalVerses(store.personalVerses, imported)
+          const count = merged.length - store.personalVerses.length
+          setStore((current) => ({ ...current, personalVerses: mergePersonalVerses(current.personalVerses, imported) }))
+          return count
+        }}
+      />
+    )}
+  </div>
+}
+
+function WeeklyMemorization({ store, setStore, reading, onChoosePlan }: { store: AppStore; setStore: Dispatch<SetStateAction<AppStore>>; reading: boolean; onChoosePlan: () => void }) {
   const [currentWeek, setCurrentWeek] = useState(() => getWeekKey())
   const [viewedWeek, setViewedWeek] = useState(() => getWeekKey())
   const previousCurrent = useRef(currentWeek)
-
-  useEffect(() => saveStore(store), [store])
 
   useEffect(() => {
     const refresh = () => setCurrentWeek(getWeekKey())
@@ -52,11 +112,12 @@ function App() {
     previousCurrent.current = currentWeek
   }, [currentWeek, viewedWeek])
 
-  if (window.location.pathname === EVENT_PATH) {
-    return <EventMemorization store={store} setStore={setStore} />
-  }
-
   if (catalogError) return <CatalogError message={catalogError} />
+  if (!store.plan && reading) return <main className="mx-auto max-w-2xl px-4 py-10">
+    <h1 className="font-serif text-3xl font-bold">Weekly reading</h1>
+    <p className="mt-4 leading-relaxed text-ink-700">Choose your starting weekly verse to read this week’s passage and browse past or upcoming weeks.</p>
+    <button onClick={onChoosePlan} className={`${buttonBase} mt-6 bg-river-600 text-white`}>Choose a weekly verse</button>
+  </main>
   if (!store.plan) {
     return <VerseSelection verses={catalog} onSelect={(verse) => {
       const weekKey = getWeekKey()
@@ -89,12 +150,12 @@ function App() {
 
   const resetPlan = () => {
     if (!window.confirm('Choose a new starting verse? This clears weekly session progress but keeps your saved chunk preferences.')) return
-    setStore({ ...emptyStore(), chunkPreferences: store.chunkPreferences })
+    setStore((current) => ({ ...current, plan: undefined, sessions: Object.fromEntries(Object.entries(current.sessions).filter(([key]) => key.startsWith('personal:') || key.startsWith('event:'))) }))
   }
 
   return (
     <div className="app-background min-h-screen text-ink-900">
-      <header className="glass-header sticky top-0 z-20 border-b">
+      <header className={`glass-header top-0 z-20 border-b ${reading ? 'sm:sticky' : 'sticky'}`}>
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:px-5 sm:py-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -108,20 +169,27 @@ function App() {
             currentWeek={currentWeek}
             viewedWeek={viewedWeek}
             onChange={setViewedWeek}
-            onResetPlan={resetPlan}
+            onResetPlan={reading ? undefined : resetPlan}
           />
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-5 sm:px-5 sm:py-7 lg:px-8 lg:py-10">
-        {!isCurrent && (
+        {!isCurrent && !reading && (
           <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
             <span><strong>{verse.reference}</strong> belongs to {formatWeekRange(viewedWeek)}. Practice here is saved separately.</span>
             <button className={`${buttonBase} glass-control px-3 py-2 text-amber-950 hover:bg-white/80`} onClick={() => setViewedWeek(currentWeek)}>Return to this week</button>
           </div>
         )}
-        {session ? (
-          <PracticeWorkspace session={session} verse={verse} onUpdate={updateSession} onRestart={restartSession} />
+        {reading ? (
+          <article aria-label="Weekly verse reading" className="glass-strong mx-auto max-w-3xl rounded-2xl border p-5 sm:rounded-3xl sm:p-10">
+            <p className="text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">Weekly reading</p>
+            <p className="mt-6 whitespace-pre-line font-serif text-xl leading-[1.85] sm:text-2xl sm:leading-[1.9]">{verse.text}</p>
+            <p className="mt-8 font-bold text-ink-700">{verse.reference}</p>
+            {!isCurrent && <button onClick={() => setViewedWeek(currentWeek)} className={`${buttonBase} mt-6 w-full bg-paper-200 hover:bg-paper-300`}>Return to this week</button>}
+          </article>
+        ) : session ? (
+          <PracticeWorkspace key={`${viewedWeek}-${verse.id}`} session={session} verse={verse} onUpdate={updateSession} onRestart={restartSession} />
         ) : (
           <ChunkSetup
             key={`${viewedWeek}-${verse.id}`}
@@ -135,45 +203,46 @@ function App() {
   )
 }
 
-function EventMemorization({ store, setStore }: { store: AppStore; setStore: Dispatch<SetStateAction<AppStore>> }) {
-  const session = store.sessions[EVENT_SESSION_KEY]?.verseId === eventVerse.id ? store.sessions[EVENT_SESSION_KEY] : undefined
+function SavedMemorization({ store, setStore, verse, sessionKey, title, onBack }: { store: AppStore; setStore: Dispatch<SetStateAction<AppStore>>; verse: Verse; sessionKey: string; title: string; onBack?: () => void }) {
+  const session = store.sessions[sessionKey]?.verseId === verse.id ? store.sessions[sessionKey] : undefined
 
   const updateSession = (next: PracticeSession) => {
-    setStore((current) => ({ ...current, sessions: { ...current.sessions, [EVENT_SESSION_KEY]: next } }))
+    setStore((current) => ({ ...current, sessions: { ...current.sessions, [sessionKey]: next } }))
   }
 
   const startSession = (boundaries: number[]) => {
-    const next = createSession(EVENT_SESSION_KEY, eventVerse.id, eventVerse.text, boundaries)
+    const next = createSession(sessionKey, verse.id, verse.text, boundaries)
     setStore((current) => ({
       ...current,
-      chunkPreferences: { ...current.chunkPreferences, [eventVerse.id]: boundaries },
-      sessions: { ...current.sessions, [EVENT_SESSION_KEY]: next },
+      chunkPreferences: { ...current.chunkPreferences, [verse.id]: boundaries },
+      sessions: { ...current.sessions, [sessionKey]: next },
     }))
   }
 
   const restartSession = () => {
-    if (!session || !window.confirm(`Restart your practice for ${eventVerse.reference}?`)) return
-    updateSession(createSession(EVENT_SESSION_KEY, eventVerse.id, eventVerse.text, session.boundaries))
+    if (!session || !window.confirm(`Restart your practice for ${verse.reference}?`)) return
+    updateSession(createSession(sessionKey, verse.id, verse.text, session.boundaries))
   }
 
   return (
     <div className="app-background min-h-screen text-ink-900">
       <header className="glass-header sticky top-0 z-20 border-b">
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <p className="text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">One-time memorization</p>
-          <h1 className="mt-2 font-serif text-3xl leading-tight font-bold sm:text-5xl">{eventVerse.reference}</h1>
-          <p className="mt-2 text-sm font-semibold text-ink-700">2026 EC YAO Retreat 2</p>
+          {onBack && <button onClick={onBack} className={`${buttonBase} mb-4 bg-paper-200 hover:bg-paper-300`}>← My verses</button>}
+          <p className="text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">{onBack ? 'Personal memorization' : 'One-time memorization'}</p>
+          <h1 className="mt-2 font-serif text-3xl leading-tight font-bold sm:text-5xl">{verse.reference}</h1>
+          <p className="mt-2 text-sm font-semibold text-ink-700">{title}</p>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-5 sm:px-5 sm:py-7 lg:px-8 lg:py-10">
         {session ? (
-          <PracticeWorkspace session={session} verse={eventVerse} onUpdate={updateSession} onRestart={restartSession} />
+          <PracticeWorkspace session={session} verse={verse} onUpdate={updateSession} onRestart={restartSession} />
         ) : (
           <ChunkSetup
-            key={EVENT_SESSION_KEY}
-            verse={eventVerse}
-            initialBoundaries={store.chunkPreferences[eventVerse.id] ?? autoChunkBoundaries(eventVerse.text)}
+            key={sessionKey}
+            verse={verse}
+            initialBoundaries={store.chunkPreferences[verse.id] ?? autoChunkBoundaries(verse.text)}
             onStart={startSession}
           />
         )}
@@ -241,14 +310,14 @@ function VerseSelection({ verses, onSelect }: { verses: Verse[]; onSelect: (vers
   )
 }
 
-function WeekNavigator({ currentWeek, viewedWeek, onChange, onResetPlan }: { currentWeek: string; viewedWeek: string; onChange: (key: string) => void; onResetPlan: () => void }) {
+function WeekNavigator({ currentWeek, viewedWeek, onChange, onResetPlan }: { currentWeek: string; viewedWeek: string; onChange: (key: string) => void; onResetPlan?: () => void }) {
   const options = Array.from({ length: 25 }, (_, index) => addWeeks(currentWeek, index - 12))
   const rollover = nextBoundary().toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })
   return (
     <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
       <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
         <button aria-label="Previous week" className={`${buttonBase} glass-control min-h-12 shrink-0 border px-4 hover:bg-white/80`} onClick={() => onChange(addWeeks(viewedWeek, -1))}>←</button>
-        <select aria-label="Choose week" value={options.includes(viewedWeek) ? viewedWeek : ''} onChange={(event) => onChange(event.target.value)} className="glass-control min-w-0 flex-1 rounded-xl border px-3 py-3 font-bold outline-none focus:border-river-500 sm:min-w-48">
+        <select aria-label="Choose week" value={viewedWeek} onChange={(event) => onChange(event.target.value)} className="glass-control min-w-0 flex-1 rounded-xl border px-3 py-3 font-bold outline-none focus:border-river-500 sm:min-w-48">
           {!options.includes(viewedWeek) && <option value={viewedWeek}>{formatWeekRange(viewedWeek)}</option>}
           {options.map((key) => <option key={key} value={key}>{key === currentWeek ? 'This week · ' : ''}{formatWeekRange(key)}</option>)}
         </select>
@@ -256,7 +325,7 @@ function WeekNavigator({ currentWeek, viewedWeek, onChange, onResetPlan }: { cur
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 text-xs text-ink-700 sm:justify-end">
         <span>Next verse: {rollover}</span>
-        <button className="font-bold underline decoration-paper-300 underline-offset-4 hover:text-river-600" onClick={onResetPlan}>Change plan</button>
+        {onResetPlan && <button className="min-h-11 font-bold underline decoration-paper-300 underline-offset-4 hover:text-river-600" onClick={onResetPlan}>Change plan</button>}
       </div>
     </div>
   )
@@ -320,25 +389,50 @@ function ChunkSetup({ verse, initialBoundaries, onStart }: { verse: Verse; initi
 }
 
 function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: PracticeSession; verse: Verse; onUpdate: (session: PracticeSession) => void; onRestart: () => void }) {
+  const [showFullVerse, setShowFullVerse] = useState(false)
   const chunks = chunksFromBoundaries(verse.text, session.boundaries)
+  const canSkip = !session.completedAt && session.stageIndex < STAGES.length - 1
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      const target = event.target
+      if (event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (target instanceof HTMLElement && (target.closest('input, textarea, select, [contenteditable="true"]')))) return
+      if (event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        setShowFullVerse((current) => !current)
+      }
+      if (event.key.toLowerCase() === 's' && canSkip) {
+        event.preventDefault()
+        onUpdate(skipToStage(session, chunks, event.shiftKey ? STAGES.length - 1 : session.stageIndex + 1))
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  })
+  const fullVerse = <div className="mb-5">
+    <button onClick={() => setShowFullVerse((current) => !current)} aria-expanded={showFullVerse} aria-controls="full-verse-reference" aria-keyshortcuts="f" className={`${buttonBase} glass-control w-full border text-river-600 sm:w-auto`}>{showFullVerse ? 'Hide full verse' : 'Show full verse'} <kbd aria-hidden="true" className="ml-2 rounded bg-paper-200 px-2 py-0.5 text-xs">F</kbd></button>
+    {showFullVerse && <section id="full-verse-reference" aria-label="Full verse reference" className="glass-strong mt-3 rounded-2xl border p-5 sm:p-7">
+      <h3 className="font-bold text-river-600">{verse.reference}</h3>
+      <p className="mt-3 whitespace-pre-line font-serif text-lg leading-relaxed sm:text-xl">{verse.text}</p>
+    </section>}
+  </div>
   const unit = session.queue[0] ? session.units[session.queue[0]] : undefined
   const gotIt = session.attempts.filter((attempt) => attempt.rating === 'got-it').length
   const mastered = Object.values(session.progress).filter((progress) => progress.mastered).length
 
   if (session.completedAt) {
     return (
-      <section className="glass-panel mx-auto max-w-3xl rounded-2xl border p-6 text-center sm:rounded-3xl sm:p-14">
+      <div>{fullVerse}<section className="glass-panel mx-auto max-w-3xl rounded-2xl border p-6 text-center sm:rounded-3xl sm:p-14">
         <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-leaf-500 text-3xl text-white">✓</div>
         <p className="mt-7 text-xs font-extrabold tracking-[0.2em] text-leaf-600 uppercase">Session complete</p>
         <h2 className="mt-3 font-serif text-4xl font-bold sm:text-5xl">You recalled {verse.reference}.</h2>
-        <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-700">You built the verse from small chunks, trained its transitions, varied your starting points, and completed two clean full recitations.</p>
+        <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-700">You completed two clean full recitations and a starting-point checkpoint.{!!session.skippedStages?.length && ` You skipped ${session.skippedStages.length} earlier learning ${session.skippedStages.length === 1 ? 'stage' : 'stages'}.`}</p>
         <div className="mx-auto mt-8 grid max-w-md grid-cols-3 gap-2 sm:gap-3">
           <Stat value={session.attempts.length} label="Attempts" />
           <Stat value={gotIt} label="Got it" />
           <Stat value={chunks.length} label="Chunks" />
         </div>
         <button onClick={onRestart} className={`${buttonBase} mt-9 bg-paper-200 hover:bg-paper-300`}>Practice again</button>
-      </section>
+      </section></div>
     )
   }
 
@@ -360,11 +454,12 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
           <ol className="mt-4 grid grid-cols-2 gap-2 sm:mt-5 sm:block sm:space-y-2">
             {STAGES.map((item, index) => {
               const active = index === session.stageIndex
-              const done = index < session.stageIndex
+              const skipped = session.skippedStages?.includes(item.id)
+              const done = index < session.stageIndex && !skipped
               return (
                 <li key={item.id} className={`flex min-w-0 items-center gap-2 rounded-xl p-2.5 sm:gap-3 sm:p-3 ${active ? 'bg-river-600 text-white' : 'text-ink-700'}`}>
-                  <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-extrabold ${active ? 'bg-white text-river-600' : done ? 'bg-leaf-500 text-white' : 'bg-paper-200'}`}>{done ? '✓' : index + 1}</span>
-                  <span className="text-sm font-bold leading-tight">{item.name}</span>
+                  <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-extrabold ${active ? 'bg-white text-river-600' : done ? 'bg-leaf-500 text-white' : 'bg-paper-200'}`}>{skipped ? '↷' : done ? '✓' : index + 1}</span>
+                  <span className="text-sm font-bold leading-tight">{item.name}{skipped && <span className="mt-1 block text-xs font-normal">Skipped</span>}</span>
                 </li>
               )
             })}
@@ -377,7 +472,8 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
         </div>
       </aside>
 
-      <section className="order-1 lg:order-2">
+      <section className="order-1 min-w-0 lg:order-2">
+        {fullVerse}
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">Stage {session.stageIndex + 1} of {STAGES.length}</p>
@@ -391,13 +487,18 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
           <RepairCard session={session} onContinue={() => onUpdate(clearRepair(session))} />
         ) : (
           <RecallCard
-            key={`${unit.id}-${session.progress[unit.id]?.attempts ?? 0}`}
+            key={`${session.stageIndex}-${unit.id}-${session.progress[unit.id]?.attempts ?? 0}`}
             unit={unit}
             chunks={chunks}
             progress={session.progress[unit.id]}
             onRate={commitRating}
           />
         )}
+        {canSkip && <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={() => onUpdate(skipToStage(session, chunks))} aria-keyshortcuts="s" className={`${buttonBase} glass-control border text-sm`}>Skip this stage <kbd aria-hidden="true" className="ml-2 text-xs text-ink-700">S</kbd></button>
+          <button onClick={() => onUpdate(skipToStage(session, chunks, STAGES.length - 1))} aria-keyshortcuts="Shift+s" className={`${buttonBase} glass-control border text-sm`}>Jump to full recitation <kbd aria-hidden="true" className="ml-2 text-xs text-ink-700">Shift+S</kbd></button>
+        </div>}
+        <p className="mt-3 text-xs leading-relaxed text-ink-700">F: full verse · S: skip stage · Shift+S: full recitation. Shortcuts pause while typing. Skipping does not count as a clean recall.</p>
       </section>
     </div>
   )
@@ -451,6 +552,7 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (event.target instanceof HTMLElement && event.target.isContentEditable)) return
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLButtonElement || pendingRating) return
       if (event.code === 'Space') {
         event.preventDefault()

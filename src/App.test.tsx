@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
@@ -10,6 +10,108 @@ describe('App', () => {
   })
 
   afterEach(() => cleanup())
+
+  function startWeekly() {
+    fireEvent.change(screen.getByPlaceholderText('Search reference or words…'), { target: { value: 'I Thessalonians 5:14-15' } })
+    fireEvent.click(screen.getByRole('button', { name: /I Thessalonians 5:14-15/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start memorizing →' }))
+  }
+
+  it('toggles the full verse without losing a covered or typed recall', () => {
+    render(<App />)
+    startWeekly()
+    fireEvent.keyDown(document, { key: ' ', code: 'Space' })
+    fireEvent.keyDown(document, { key: 'f' })
+    expect(screen.getByRole('region', { name: 'Full verse reference' })).toHaveTextContent('Now we exhort you')
+    expect(screen.getByText('Say it out loud.')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'f', repeat: true })
+    expect(screen.getByRole('button', { name: 'Hide full verse' })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.keyDown(document, { key: 'f' })
+    fireEvent.keyDown(document, { key: 'Enter' })
+    const answer = screen.getByRole('textbox', { name: 'Type from memory' })
+    fireEvent.change(answer, { target: { value: 'first words' } })
+    fireEvent.keyDown(answer, { key: 'f' })
+    fireEvent.keyDown(answer, { key: 's' })
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    expect(screen.queryByRole('region', { name: 'Full verse reference' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Learn chunks' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show full verse' }))
+    expect(answer).toHaveValue('first words')
+  })
+
+  it('skips stages with shortcuts, persists the result, and keeps final recall required', () => {
+    const rendered = render(<App />)
+    startWeekly()
+    fireEvent.keyDown(document, { key: 's' })
+    expect(screen.getByRole('heading', { name: 'Pair chunks' })).toBeInTheDocument()
+    expect(screen.getByText('Skipped')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'S', shiftKey: true })
+    expect(screen.getByRole('heading', { name: 'Full recitation' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Skip this stage' })).not.toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 's' })
+    expect(screen.queryByText('Session complete')).not.toBeInTheDocument()
+    rendered.unmount()
+    render(<App />)
+    expect(screen.getByRole('heading', { name: 'Full recitation' })).toBeInTheDocument()
+    expect(screen.getAllByText('Skipped')).toHaveLength(5)
+  })
+
+  it('keeps personal practice separate and preserves it when changing the weekly plan', () => {
+    const rendered = render(<App />)
+    startWeekly()
+    const originalPlan = JSON.parse(localStorage.getItem('verse-memory-v2')!).plan
+    fireEvent.click(screen.getByRole('link', { name: 'My verses' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Reference' }), { target: { value: 'Psalm 23:1' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Verse text' }), { target: { value: 'The LORD is my shepherd; I shall not want.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add to My verses' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Practice Psalm 23:1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start memorizing →' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Skip this stage' }))
+    let saved = JSON.parse(localStorage.getItem('verse-memory-v2')!)
+    expect(saved.plan).toEqual(originalPlan)
+    expect(saved.sessions['personal:-1'].stageIndex).toBe(1)
+    fireEvent.click(screen.getByRole('link', { name: 'Weekly practice' }))
+    expect(screen.getByRole('heading', { name: 'Learn chunks' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Change plan' }))
+    saved = JSON.parse(localStorage.getItem('verse-memory-v2')!)
+    expect(saved.personalVerses).toHaveLength(1)
+    expect(Object.keys(saved.sessions)).toEqual(['personal:-1'])
+    fireEvent.click(screen.getByRole('link', { name: 'My verses' }))
+    rendered.unmount()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Practice Psalm 23:1' }))
+    expect(screen.getByRole('heading', { name: 'Pair chunks' })).toBeInTheDocument()
+  })
+
+  it('imports a file and rejects malformed pasted lists without partial imports', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('link', { name: 'My verses' }))
+    fireEvent.click(screen.getByText('Import multiple verses'))
+    const file = new File([''], 'verses.json', { type: 'application/json' })
+    Object.defineProperty(file, 'text', { value: async () => '[{"reference":"Psalm 23:1","text":"The LORD is my shepherd."}]' })
+    fireEvent.change(screen.getByLabelText('Import a file'), { target: { files: [file] } })
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Psalm 23:1' })).toBeInTheDocument())
+    fireEvent.change(screen.getByRole('textbox', { name: 'Verses to import' }), { target: { value: 'John 3:16 — For God so loved the world.\ninvalid line' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Import pasted verses' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Use one verse per line')
+    expect(screen.queryByRole('heading', { name: 'John 3:16' })).not.toBeInTheDocument()
+  })
+
+  it('provides a read-only weekly view with week navigation and unchanged progress', () => {
+    render(<App />)
+    startWeekly()
+    const saved = localStorage.getItem('verse-memory-v2')
+    fireEvent.click(screen.getByRole('link', { name: 'Weekly reading' }))
+    const article = screen.getByRole('article', { name: 'Weekly verse reading' })
+    expect(within(article).getByText(/Now we exhort you/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Cover & recall/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Change plan' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+    expect(screen.queryByRole('heading', { name: 'I Thessalonians 5:14-15' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Return to this week' }))
+    expect(screen.getByRole('heading', { name: 'I Thessalonians 5:14-15' })).toBeInTheDocument()
+    expect(localStorage.getItem('verse-memory-v2')).toBe(saved)
+  })
 
   it('selects a weekly verse and starts the covered recall flow', () => {
     render(<App />)

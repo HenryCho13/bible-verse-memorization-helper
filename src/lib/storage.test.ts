@@ -16,4 +16,10 @@ describe('local storage', () => {
     localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1 }))
     expect(loadStore()).toEqual(emptyStore())
   })
+
+  it('loads existing weekly progress when the personal library has not been created', () => {
+    const old = { version: 2, plan: { anchorWeekKey: '2026-06-21', anchorVerseId: 10 }, chunkPreferences: { '10': [3] }, sessions: {} }
+    localStorage.setItem(STORE_KEY, JSON.stringify(old))
+    expect(loadStore()).toEqual({ ...old, personalVerses: [] })
+  })
 })
