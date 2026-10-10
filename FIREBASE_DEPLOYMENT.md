@@ -22,3 +22,40 @@ npm test
 npm run build
 npx firebase-tools deploy --only hosting --project YOUR_FIREBASE_PROJECT_ID
 ```
+
+## Progressive web app
+
+Use Node.js 22.13+ for dependency installation and builds (CI uses Node.js 22).
+
+The production build generates a web app manifest and a Workbox service worker
+using [Vite PWA](https://vite-pwa-org.netlify.app/frameworks/react). Firebase
+Hosting provides the HTTPS required for installation and offline support.
+
+Open the app online once and wait for **Ready for offline practice** before
+disconnecting. The app shell and entire bundled verse catalog are cached;
+personal verses and practice progress remain in this browser's local storage.
+The event URL `/event/2026-ec-yao-retreat-2` also opens offline. Listen Mode
+depends on the device's speech voices; some voices require an internet connection.
+
+Install through the browser's install menu on supported desktop/Android browsers,
+or Safari's **Share → Add to Home Screen** on iPhone/iPad. Updates display
+**Reload to update** / **Later**, so an active practice session is not forcibly
+reloaded. Reloading keeps saved progress but resets unsaved inputs, such as a
+partially typed recall. The service worker and manifest are served with
+revalidation headers, while hashed app assets retain long-lived caching.
+
+To check locally:
+
+```sh
+npm run build
+npm run preview -- --host 127.0.0.1
+```
+
+1. Open the preview URL on localhost (service workers are disabled in `npm run dev`).
+2. Inspect **Application → Manifest** and **Service Workers** in browser developer tools.
+3. Wait for offline readiness, choose a verse, and begin practice.
+4. Enable offline mode, reload, and verify the saved practice and event URL load.
+5. To test an update, keep the tab open, change/build the app, and reopen or reload
+   the page online. Choose **Later** to keep practicing, or **Reload to update**
+   to activate the new version. Allow over a minute between test builds to avoid
+   Workbox's rapid-update development heuristic.

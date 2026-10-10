@@ -47,7 +47,9 @@ button:disabled { cursor: not-allowed; }
 #root { min-height: 100vh; min-height: 100dvh; }
 
 @supports (padding: env(safe-area-inset-bottom)) {
-  body { padding-bottom: env(safe-area-inset-bottom); }
+  body {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
 }
 
 ::selection { background: #b9dcff; color: #182235; }
