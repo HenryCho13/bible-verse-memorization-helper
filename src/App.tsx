@@ -8,6 +8,7 @@ import { addWeeks, formatWeekRange, getWeekKey, nextBoundary, verseForWeek } fro
 import { loadStore, saveStore } from './lib/storage'
 import type { AppStore, PracticeSession, Rating, Verse } from './types'
 import { PersonalLibrary } from './components/PersonalLibrary'
+import { ListenMode } from './components/ListenMode'
 import { mergePersonalVerses } from './data/importVerses'
 import type { TypedRecallGrade } from './lib/recallGrading'
 
@@ -390,9 +391,11 @@ function ChunkSetup({ verse, initialBoundaries, onStart }: { verse: Verse; initi
 
 function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: PracticeSession; verse: Verse; onUpdate: (session: PracticeSession) => void; onRestart: () => void }) {
   const [showFullVerse, setShowFullVerse] = useState(false)
+  const [listening, setListening] = useState(false)
   const chunks = chunksFromBoundaries(verse.text, session.boundaries)
   const canSkip = !session.completedAt && session.stageIndex < STAGES.length - 1
   useEffect(() => {
+    if (listening) return
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target
       if (event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (target instanceof HTMLElement && (target.closest('input, textarea, select, [contenteditable="true"]')))) return
@@ -409,6 +412,7 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
     return () => document.removeEventListener('keydown', handleKey)
   })
   const fullVerse = <div className="mb-5">
+    <button onClick={() => setListening(true)} className={`${buttonBase} mb-3 w-full bg-river-600 text-white hover:bg-river-500`}>Listen mode</button>
     <button onClick={() => setShowFullVerse((current) => !current)} aria-expanded={showFullVerse} aria-controls="full-verse-reference" aria-keyshortcuts="f" className={`${buttonBase} glass-control w-full border text-river-600 sm:w-auto`}>{showFullVerse ? 'Hide full verse' : 'Show full verse'} <kbd aria-hidden="true" className="ml-2 rounded bg-paper-200 px-2 py-0.5 text-xs">F</kbd></button>
     {showFullVerse && <section id="full-verse-reference" aria-label="Full verse reference" className="glass-strong mt-3 rounded-2xl border p-5 sm:p-7">
       <h3 className="font-bold text-river-600">{verse.reference}</h3>
@@ -418,6 +422,8 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
   const unit = session.queue[0] ? session.units[session.queue[0]] : undefined
   const gotIt = session.attempts.filter((attempt) => attempt.rating === 'got-it').length
   const mastered = Object.values(session.progress).filter((progress) => progress.mastered).length
+
+  if (listening) return <ListenMode chunks={chunks} initialPart={unit?.chunkIndexes[0] ?? 0} onExit={() => setListening(false)} />
 
   if (session.completedAt) {
     return (

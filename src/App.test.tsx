@@ -17,6 +17,22 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start memorizing →' }))
   }
 
+  it('uses the saved parts in listen mode without advancing recall progress', () => {
+    render(<App />)
+    startWeekly()
+    const saved = localStorage.getItem('verse-memory-v2')
+    fireEvent.click(screen.getByRole('button', { name: 'Listen mode' }))
+    expect(screen.getByRole('heading', { name: 'Listen mode' })).toBeInTheDocument()
+    expect(screen.getByText('Now we exhort you, brethren, warn those who are unruly,')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Next part' }))
+    fireEvent.keyDown(document, { key: 's' })
+    fireEvent.keyDown(document, { code: 'Space', key: ' ' })
+    expect(localStorage.getItem('verse-memory-v2')).toBe(saved)
+    fireEvent.click(screen.getByRole('button', { name: '← Back to practice' }))
+    expect(screen.getByRole('heading', { name: 'Learn chunks' })).toBeInTheDocument()
+    expect(screen.getByText('Clean recalls: 0/2')).toBeInTheDocument()
+  })
+
   it('toggles the full verse without losing a covered or typed recall', () => {
     render(<App />)
     startWeekly()
