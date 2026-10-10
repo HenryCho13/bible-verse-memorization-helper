@@ -30,6 +30,36 @@ describe('Listen mode', () => {
     return render(<ListenMode chunks={chunks} initialPart={initialPart} onExit={() => {}} />)
   }
 
+  it('requests media playback before speaking and restores the session on end or exit', () => {
+    const audioSession = { type: 'auto' }
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { audioSession }))
+    const view = open()
+    expect(audioSession.type).toBe('auto')
+    speech.speak.mockImplementationOnce((utterance) => {
+      expect(audioSession.type).toBe('playback')
+      return spoken.push(utterance)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Hear this part' }))
+    act(() => spoken[0].onend?.())
+    expect(audioSession.type).toBe('auto')
+    fireEvent.click(screen.getByRole('button', { name: 'Hear this part' }))
+    expect(audioSession.type).toBe('playback')
+    view.unmount()
+    expect(audioSession.type).toBe('auto')
+  })
+
+  it('still speaks when the browser rejects the audio session request', () => {
+    const audioSession = Object.defineProperty({}, 'type', {
+      get: () => 'auto',
+      set: () => { throw new Error('Unsupported') },
+    })
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { audioSession }))
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Hear this part' }))
+    expect(speech.speak).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('speaks only the selected part once per tap, at the selected speed', () => {
     open()
     expect(speech.speak).not.toHaveBeenCalled()

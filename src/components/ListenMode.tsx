@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { requestPlaybackAudioSession } from '../lib/playbackAudioSession'
 
 const speedKey = 'verse-memory-listen-speed'
 const button = 'min-h-14 rounded-2xl px-4 py-3 font-bold transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-river-500/40 disabled:opacity-40'
@@ -19,6 +20,7 @@ export function ListenMode({ chunks, initialPart, onExit }: { chunks: string[]; 
   const [error, setError] = useState('')
   // Keep the utterance alive and ignore late events from canceled playback.
   const utterance = useRef<SpeechSynthesisUtterance | null>(null)
+  const releaseAudioSession = useRef<(() => void) | null>(null)
   const supported = typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function'
 
   const cancel = useCallback(() => {
@@ -29,6 +31,8 @@ export function ListenMode({ chunks, initialPart, onExit }: { chunks: string[]; 
       current.onerror = null
       window.speechSynthesis.cancel()
     }
+    releaseAudioSession.current?.()
+    releaseAudioSession.current = null
   }, [])
 
   const stop = useCallback(() => {
@@ -49,6 +53,7 @@ export function ListenMode({ chunks, initialPart, onExit }: { chunks: string[]; 
     cancel()
     setError('')
     try {
+      releaseAudioSession.current = requestPlaybackAudioSession()
       const speech = new SpeechSynthesisUtterance(chunks[part])
       speech.lang = 'en-US'
       speech.rate = nextSpeed === 'slow' ? 0.7 : 1
@@ -58,12 +63,12 @@ export function ListenMode({ chunks, initialPart, onExit }: { chunks: string[]; 
       speech.onend = () => {
         if (utterance.current !== speech) return
         utterance.current = null
-        setPlaying(false)
+        stop()
       }
       speech.onerror = () => {
         if (utterance.current !== speech) return
         utterance.current = null
-        setPlaying(false)
+        stop()
         setError('Could not play this part. Tap Hear this part to try again.')
       }
       utterance.current = speech
