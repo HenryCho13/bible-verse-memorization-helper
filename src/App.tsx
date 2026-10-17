@@ -8,7 +8,10 @@ import { addWeeks, formatWeekRange, getWeekKey, nextBoundary, verseForWeek } fro
 import { loadStore, saveStore } from './lib/storage'
 import type { AppStore, PracticeSession, Rating, Verse } from './types'
 import { PersonalLibrary } from './components/PersonalLibrary'
+import { FullVerseReader } from './components/FullVerseReader'
+import { applyTheme, savedTheme, themeKey } from './lib/theme'
 import { ListenMode } from './components/ListenMode'
+import { AudioOutputTest } from './components/AudioOutputTest'
 import { mergePersonalVerses } from './data/importVerses'
 import type { TypedRecallGrade } from './lib/recallGrading'
 
@@ -44,6 +47,12 @@ function App() {
   const [store, setStore] = useState<AppStore>(() => loadStore())
   const [tab, setTab] = useState<AppTab>(currentTab)
   const [personalId, setPersonalId] = useState<number>()
+  const [headerExpanded, setHeaderExpanded] = useState(false)
+  const [theme, setTheme] = useState(savedTheme)
+  useEffect(() => {
+    applyTheme(theme)
+    try { localStorage.setItem(themeKey, theme) } catch { /* Theme works without storage. */ }
+  }, [theme])
   useEffect(() => saveStore(store), [store])
   useEffect(() => {
     const update = () => setTab(currentTab())
@@ -51,20 +60,26 @@ function App() {
     return () => window.removeEventListener('hashchange', update)
   }, [])
   const navigate = (next: AppTab) => { window.location.hash = next; setTab(next) }
-  if (window.location.pathname === EVENT_PATH) {
-    return <SavedMemorization store={store} setStore={setStore} verse={eventVerse} sessionKey={EVENT_SESSION_KEY} title="2026 EC YAO Retreat 2" />
-  }
+  const standalone = window.location.pathname === EVENT_PATH || window.location.pathname === '/audio-test'
   const personalVerse = store.personalVerses.find((verse) => verse.id === personalId)
-  return <div className="app-background min-h-screen text-ink-900">
-    <nav aria-label="Main navigation" className="glass-header border-b px-3 py-3 sm:px-5">
+  return <div className="app-background min-h-screen text-ink-900" data-header-expanded={headerExpanded}>
+    <nav aria-label="Main navigation" className="glass-header border-b px-3 py-1 sm:px-5 sm:py-3">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <span className="px-1 text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">Verse Memory</span>
-        <div className="grid grid-cols-3 gap-1 rounded-2xl bg-paper-200/60 p-1">
-          {tabs.map((item) => <a key={item.id} href={`#${item.id}`} aria-current={tab === item.id ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigate(item.id) }} className={`flex min-h-12 items-center justify-center rounded-xl px-3 py-2 text-center text-sm font-bold transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-river-500/30 ${tab === item.id ? 'bg-white text-river-600 shadow-sm' : 'text-ink-700 hover:bg-white/60'}`}>{item.label}</a>)}
+        <div className="flex min-h-12 items-center justify-between gap-3">
+          <span className="px-1 text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">Verse Memory</span>
+          <button onClick={() => setHeaderExpanded((expanded) => !expanded)} aria-expanded={headerExpanded} aria-controls="header-controls verse-header" className="min-h-12 rounded-xl px-4 font-bold text-river-600 sm:hidden">{headerExpanded ? 'Close menu −' : 'Menu +'}</button>
+        </div>
+        <div id="header-controls" className="header-details flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:pb-0">
+        <button aria-pressed={theme === 'dark'} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} className="glass-control min-h-12 rounded-xl border px-4 py-3 font-bold">Dark mode <span aria-hidden="true">{theme === 'dark' ? '●' : '○'}</span></button>
+        {!standalone && <div className="grid grid-cols-3 gap-1 rounded-2xl bg-paper-200/60 p-1">
+          {tabs.map((item) => <a key={item.id} href={`#${item.id}`} aria-current={tab === item.id ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigate(item.id); setHeaderExpanded(false) }} className={`flex min-h-12 items-center justify-center rounded-xl px-3 py-2 text-center text-sm font-bold transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-river-500/30 ${tab === item.id ? 'bg-surface text-river-600 shadow-sm' : 'text-ink-700 hover:bg-surface/60'}`}>{item.label}</a>)}
+        </div>}
         </div>
       </div>
     </nav>
-    {tab !== 'personal' ? (
+    {window.location.pathname === '/audio-test' ? <AudioOutputTest /> : window.location.pathname === EVENT_PATH ? (
+      <SavedMemorization store={store} setStore={setStore} verse={eventVerse} sessionKey={EVENT_SESSION_KEY} title="2026 EC YAO Retreat 2" />
+    ) : tab !== 'personal' ? (
       <WeeklyMemorization store={store} setStore={setStore} reading={tab === 'reading'} onChoosePlan={() => navigate('practice')} />
     ) : personalVerse ? (
       <SavedMemorization
@@ -156,22 +171,24 @@ function WeeklyMemorization({ store, setStore, reading, onChoosePlan }: { store:
 
   return (
     <div className="app-background min-h-screen text-ink-900">
-      <header className={`glass-header top-0 z-20 border-b ${reading ? 'sm:sticky' : 'sticky'}`}>
+      <header id="verse-header" className="glass-header verse-header top-0 z-20 border-b sm:sticky">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:px-5 sm:py-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
+            <div className="header-details mb-2 flex flex-wrap items-center gap-2">
               <span className="text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">Verse Memory</span>
               {!isCurrent && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">Viewing another week</span>}
             </div>
             <h1 className="font-serif text-3xl leading-tight font-bold sm:text-5xl">{verse.reference}</h1>
-            <p className="mt-2 text-sm font-semibold text-ink-700">{verse.topic} · Week of {formatWeekRange(viewedWeek)}</p>
+            <p className="header-details mt-2 text-sm font-semibold text-ink-700">{verse.topic} · Week of {formatWeekRange(viewedWeek)}</p>
           </div>
+          <div className="header-details">
           <WeekNavigator
             currentWeek={currentWeek}
             viewedWeek={viewedWeek}
             onChange={setViewedWeek}
             onResetPlan={reading ? undefined : resetPlan}
           />
+          </div>
         </div>
       </header>
 
@@ -179,7 +196,7 @@ function WeeklyMemorization({ store, setStore, reading, onChoosePlan }: { store:
         {!isCurrent && !reading && (
           <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
             <span><strong>{verse.reference}</strong> belongs to {formatWeekRange(viewedWeek)}. Practice here is saved separately.</span>
-            <button className={`${buttonBase} glass-control px-3 py-2 text-amber-950 hover:bg-white/80`} onClick={() => setViewedWeek(currentWeek)}>Return to this week</button>
+            <button className={`${buttonBase} glass-control px-3 py-2 text-amber-950 hover:bg-surface/80`} onClick={() => setViewedWeek(currentWeek)}>Return to this week</button>
           </div>
         )}
         {reading ? (
@@ -227,12 +244,12 @@ function SavedMemorization({ store, setStore, verse, sessionKey, title, onBack }
 
   return (
     <div className="app-background min-h-screen text-ink-900">
-      <header className="glass-header sticky top-0 z-20 border-b">
+      <header id="verse-header" className="glass-header verse-header top-0 z-20 border-b sm:sticky">
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-5 sm:py-6 lg:px-8">
-          {onBack && <button onClick={onBack} className={`${buttonBase} mb-4 bg-paper-200 hover:bg-paper-300`}>← My verses</button>}
-          <p className="text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">{onBack ? 'Personal memorization' : 'One-time memorization'}</p>
+          {onBack && <button onClick={onBack} className={`${buttonBase} header-details mb-4 bg-paper-200 hover:bg-paper-300`}>← My verses</button>}
+          <p className="header-details text-xs font-extrabold tracking-[0.18em] text-river-600 uppercase">{onBack ? 'Personal memorization' : 'One-time memorization'}</p>
           <h1 className="mt-2 font-serif text-3xl leading-tight font-bold sm:text-5xl">{verse.reference}</h1>
-          <p className="mt-2 text-sm font-semibold text-ink-700">{title}</p>
+          <p className="header-details mt-2 text-sm font-semibold text-ink-700">{title}</p>
         </div>
       </header>
 
@@ -255,7 +272,7 @@ function SavedMemorization({ store, setStore, verse, sessionKey, title, onBack }
 function CatalogError({ message }: { message: string }) {
   return (
     <main className="grid min-h-screen place-items-center bg-paper-100 p-6">
-      <section className="max-w-xl rounded-2xl border border-red-200 bg-white p-8 paper-shadow">
+      <section className="max-w-xl rounded-2xl border border-red-200 bg-surface p-8 paper-shadow">
         <p className="text-xs font-extrabold tracking-widest text-red-700 uppercase">Verse data error</p>
         <h1 className="mt-2 font-serif text-3xl font-bold">The verse catalog could not be loaded.</h1>
         <p className="mt-4 text-ink-700">{message}</p>
@@ -299,7 +316,7 @@ function VerseSelection({ verses, onSelect }: { verses: Verse[]; onSelect: (vers
         <p className="mt-5 text-sm font-bold text-ink-700">{filtered.length} {filtered.length === 1 ? 'verse' : 'verses'}</p>
         <div className="mt-3 grid gap-3 sm:max-h-[60vh] sm:grid-cols-2 sm:overflow-y-auto sm:pr-1">
           {filtered.map((verse) => (
-            <button key={verse.id} onClick={() => onSelect(verse)} className="glass-panel group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:border-river-500 hover:bg-white/75 hover:shadow-xl focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-river-500/30 sm:p-5">
+            <button key={verse.id} onClick={() => onSelect(verse)} className="glass-panel group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:border-river-500 hover:bg-surface/75 hover:shadow-xl focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-river-500/30 sm:p-5">
               <span className="text-xs font-extrabold tracking-wider text-river-600 uppercase">{verse.topic} · #{verse.id}</span>
               <strong className="mt-2 block font-serif text-xl group-hover:text-river-600">{verse.reference}</strong>
               <span className="mt-2 line-clamp-3 block text-sm leading-relaxed text-ink-700">{verse.text}</span>
@@ -317,12 +334,12 @@ function WeekNavigator({ currentWeek, viewedWeek, onChange, onResetPlan }: { cur
   return (
     <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
       <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
-        <button aria-label="Previous week" className={`${buttonBase} glass-control min-h-12 shrink-0 border px-4 hover:bg-white/80`} onClick={() => onChange(addWeeks(viewedWeek, -1))}>←</button>
+        <button aria-label="Previous week" className={`${buttonBase} glass-control min-h-12 shrink-0 border px-4 hover:bg-surface/80`} onClick={() => onChange(addWeeks(viewedWeek, -1))}>←</button>
         <select aria-label="Choose week" value={viewedWeek} onChange={(event) => onChange(event.target.value)} className="glass-control min-w-0 flex-1 rounded-xl border px-3 py-3 font-bold outline-none focus:border-river-500 sm:min-w-48">
           {!options.includes(viewedWeek) && <option value={viewedWeek}>{formatWeekRange(viewedWeek)}</option>}
           {options.map((key) => <option key={key} value={key}>{key === currentWeek ? 'This week · ' : ''}{formatWeekRange(key)}</option>)}
         </select>
-        <button aria-label="Next week" className={`${buttonBase} glass-control min-h-12 shrink-0 border px-4 hover:bg-white/80`} onClick={() => onChange(addWeeks(viewedWeek, 1))}>→</button>
+        <button aria-label="Next week" className={`${buttonBase} glass-control min-h-12 shrink-0 border px-4 hover:bg-surface/80`} onClick={() => onChange(addWeeks(viewedWeek, 1))}>→</button>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 text-xs text-ink-700 sm:justify-end">
         <span>Next verse: {rollover}</span>
@@ -379,7 +396,7 @@ function ChunkSetup({ verse, initialBoundaries, onStart }: { verse: Verse; initi
         <ol className="mt-5 space-y-3">
           {chunks.map((chunk, index) => (
             <li key={`${chunk}-${index}`} className="flex gap-3 rounded-xl bg-paper-100 p-3">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-xs font-extrabold text-river-600">{index + 1}</span>
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-surface text-xs font-extrabold text-river-600">{index + 1}</span>
               <span className="font-serif leading-snug">{chunk}</span>
             </li>
           ))}
@@ -403,7 +420,7 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
         event.preventDefault()
         setShowFullVerse((current) => !current)
       }
-      if (event.key.toLowerCase() === 's' && canSkip) {
+      if (event.key.toLowerCase() === 's' && canSkip && !showFullVerse) {
         event.preventDefault()
         onUpdate(skipToStage(session, chunks, event.shiftKey ? STAGES.length - 1 : session.stageIndex + 1))
       }
@@ -414,10 +431,7 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
   const fullVerse = <div className="mb-5">
     <button onClick={() => setListening(true)} className={`${buttonBase} mb-3 w-full bg-river-600 text-white hover:bg-river-500`}>Listen mode</button>
     <button onClick={() => setShowFullVerse((current) => !current)} aria-expanded={showFullVerse} aria-controls="full-verse-reference" aria-keyshortcuts="f" className={`${buttonBase} glass-control w-full border text-river-600 sm:w-auto`}>{showFullVerse ? 'Hide full verse' : 'Show full verse'} <kbd aria-hidden="true" className="ml-2 rounded bg-paper-200 px-2 py-0.5 text-xs">F</kbd></button>
-    {showFullVerse && <section id="full-verse-reference" aria-label="Full verse reference" className="glass-strong mt-3 rounded-2xl border p-5 sm:p-7">
-      <h3 className="font-bold text-river-600">{verse.reference}</h3>
-      <p className="mt-3 whitespace-pre-line font-serif text-lg leading-relaxed sm:text-xl">{verse.text}</p>
-    </section>}
+    {showFullVerse && <FullVerseReader verse={verse} onClose={() => setShowFullVerse(false)} />}
   </div>
   const unit = session.queue[0] ? session.units[session.queue[0]] : undefined
   const gotIt = session.attempts.filter((attempt) => attempt.rating === 'got-it').length
@@ -464,7 +478,7 @@ function PracticeWorkspace({ session, verse, onUpdate, onRestart }: { session: P
               const done = index < session.stageIndex && !skipped
               return (
                 <li key={item.id} className={`flex min-w-0 items-center gap-2 rounded-xl p-2.5 sm:gap-3 sm:p-3 ${active ? 'bg-river-600 text-white' : 'text-ink-700'}`}>
-                  <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-extrabold ${active ? 'bg-white text-river-600' : done ? 'bg-leaf-500 text-white' : 'bg-paper-200'}`}>{skipped ? '↷' : done ? '✓' : index + 1}</span>
+                  <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-extrabold ${active ? 'bg-surface text-river-600' : done ? 'bg-leaf-500 text-white' : 'bg-paper-200'}`}>{skipped ? '↷' : done ? '✓' : index + 1}</span>
                   <span className="text-sm font-bold leading-tight">{item.name}{skipped && <span className="mt-1 block text-xs font-normal">Skipped</span>}</span>
                 </li>
               )
@@ -558,6 +572,7 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if (document.querySelector('dialog[open]')) return
       if (event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (event.target instanceof HTMLElement && event.target.isContentEditable)) return
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLButtonElement || pendingRating) return
       if (event.code === 'Space') {
@@ -597,16 +612,16 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
         </span>
       </div>
 
-      <div className={`grid min-h-[280px] place-items-center p-5 text-center sm:min-h-[340px] sm:p-12 ${phase === 'recall' || phase === 'typing' ? 'bg-ink-900/92 text-white backdrop-blur-2xl' : 'glass-strong'}`}>
+      <div className={`grid min-h-[280px] place-items-center p-5 text-center sm:min-h-[340px] sm:p-12 ${phase === 'recall' || phase === 'typing' ? 'bg-night/92 text-white backdrop-blur-2xl' : 'glass-strong'}`}>
         {phase === 'recall' ? (
           <div>
-            <p className="text-xs font-extrabold tracking-[0.2em] text-paper-300 uppercase">No peeking</p>
+            <p className="text-xs font-extrabold tracking-[0.2em] text-slate-300 uppercase">No peeking</p>
             <h3 className="mt-4 font-serif text-4xl font-bold">Say it out loud.</h3>
-            <p className="mt-4 text-paper-300">Retrieve the words, then reveal the text or type your answer.</p>
+            <p className="mt-4 text-slate-300">Retrieve the words, then reveal the text or type your answer.</p>
           </div>
         ) : phase === 'typing' ? (
           <form id={`typed-recall-${unit.id}`} className="w-full max-w-2xl text-left" onSubmit={(event) => { event.preventDefault(); submitTypedAnswer() }}>
-            <label htmlFor={`typed-answer-${unit.id}`} className="block text-xs font-extrabold tracking-[0.2em] text-paper-300 uppercase">Type from memory</label>
+            <label htmlFor={`typed-answer-${unit.id}`} className="block text-xs font-extrabold tracking-[0.2em] text-slate-300 uppercase">Type from memory</label>
             <textarea
               ref={textareaRef}
               id={`typed-answer-${unit.id}`}
@@ -623,9 +638,9 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
               autoCapitalize="sentences"
               spellCheck={false}
               placeholder="Type the passage here…"
-              className="mt-4 w-full resize-y rounded-2xl border border-white/20 bg-white/10 p-4 text-lg leading-relaxed text-white outline-none placeholder:text-paper-300/60 focus:border-river-500 focus:ring-3 focus:ring-river-500/30"
+              className="mt-4 w-full resize-y rounded-2xl border border-white/20 bg-white/10 p-4 text-lg leading-relaxed text-white outline-none placeholder:text-slate-300/60 focus:border-river-500 focus:ring-3 focus:ring-river-500/30"
             />
-            <p className="mt-3 text-sm text-paper-300">Capitalization, punctuation, and extra spaces do not affect your score.</p>
+            <p className="mt-3 text-sm text-slate-300">Capitalization, punctuation, and extra spaces do not affect your score.</p>
           </form>
         ) : phase === 'typed-result' && typedGrade ? (
           <TypedRecallReview grade={typedGrade} selectedRating={selectedRating} />
@@ -657,7 +672,7 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
         ) : phase === 'recall' ? (
           <div className="grid gap-2 sm:grid-cols-2">
             <button onClick={startTyping} aria-keyshortcuts="Enter" className={`${buttonBase} bg-river-600 text-white hover:bg-river-500`}>Type your answer <span aria-hidden="true" className="ml-2 hidden text-white/60 sm:inline">Enter</span></button>
-            <button onClick={() => setPhase('check')} aria-keyshortcuts="Space" className={`${buttonBase} bg-white text-ink-900 ring-1 ring-paper-300 hover:bg-paper-100`}>Reveal & check <span aria-hidden="true" className="ml-2 hidden text-ink-700/60 sm:inline">Space</span></button>
+            <button onClick={() => setPhase('check')} aria-keyshortcuts="Space" className={`${buttonBase} bg-surface text-ink-900 ring-1 ring-paper-300 hover:bg-paper-100`}>Reveal & check <span aria-hidden="true" className="ml-2 hidden text-ink-700/60 sm:inline">Space</span></button>
           </div>
         ) : phase === 'typing' ? (
           <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
@@ -674,7 +689,7 @@ function RecallCard({ unit, chunks, progress, onRate }: { unit: PracticeSession[
                 <RatingChoice rating="got-it" selected={selectedRating === 'got-it'} onSelect={setSelectedRating} />
               </div>
             </fieldset>
-            <button onClick={continueTypedResult} aria-keyshortcuts="Enter" className={`${buttonBase} mt-3 w-full bg-ink-900 text-white hover:bg-ink-700`}>Continue with {ratingLabel(selectedRating)} → <span aria-hidden="true" className="ml-2 hidden text-white/60 sm:inline">Enter</span></button>
+            <button onClick={continueTypedResult} aria-keyshortcuts="Enter" className={`${buttonBase} mt-3 w-full bg-night text-white hover:bg-slate-700`}>Continue with {ratingLabel(selectedRating)} → <span aria-hidden="true" className="ml-2 hidden text-white/60 sm:inline">Enter</span></button>
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-3">
@@ -734,7 +749,7 @@ function TypedRecallReview({ grade, selectedRating }: { grade: TypedRecallGrade;
 
 function DiffLine({ label, tokens, side, emptyText }: { label: string; tokens: TypedRecallGrade['alignment']; side: 'expected' | 'actual'; emptyText?: string }) {
   return (
-    <div className="rounded-2xl border border-paper-300 bg-white p-4">
+    <div className="rounded-2xl border border-paper-300 bg-surface p-4">
       <p className="text-xs font-extrabold tracking-wider text-ink-700 uppercase">{label}</p>
       <p className="mt-3 font-serif text-lg leading-loose">
         {tokens.length === 0 && <span className="font-sans text-sm text-ink-700 italic">{emptyText}</span>}
@@ -756,7 +771,7 @@ function RepairCard({ session, onContinue }: { session: PracticeSession; onConti
       <p className="text-xs font-extrabold tracking-[0.18em] text-amber-800 uppercase">Targeted correction</p>
       <h3 className="mt-2 font-serif text-3xl font-bold">{repair.label}</h3>
       <p className="mt-3 text-ink-700">Review only the nearby connection. You do not need to restart from the beginning.</p>
-      <div className="mt-6 rounded-2xl border border-amber-200 bg-white p-5 text-center font-serif text-xl leading-relaxed sm:mt-7 sm:p-7 sm:text-2xl">{repair.text}</div>
+      <div className="mt-6 rounded-2xl border border-amber-200 bg-surface p-5 text-center font-serif text-xl leading-relaxed sm:mt-7 sm:p-7 sm:text-2xl">{repair.text}</div>
       <button onClick={onContinue} className={`${buttonBase} mt-6 w-full bg-amber-800 text-white hover:bg-amber-700`}>Continue the queue →</button>
     </div>
   )

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { parseImportedVerses, type ImportedVerse } from '../data/importVerses'
 import type { Verse } from '../types'
 
-const field = 'mt-2 w-full rounded-xl border border-paper-300 bg-white px-4 py-3 outline-none focus:border-river-500 focus:ring-3 focus:ring-river-500/15'
+const field = 'mt-2 w-full rounded-xl border border-paper-300 bg-surface px-4 py-3 outline-none focus:border-river-500 focus:ring-3 focus:ring-river-500/15'
 const button = 'min-h-12 rounded-xl px-4 py-3 font-bold focus-visible:ring-3 focus-visible:ring-river-500/30'
 
 export function PersonalLibrary({ verses, onImport, onPractice }: { verses: Verse[]; onImport: (verses: ImportedVerse[]) => number; onPractice: (verse: Verse) => void }) {

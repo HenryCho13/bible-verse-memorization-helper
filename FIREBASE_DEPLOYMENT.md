@@ -59,3 +59,15 @@ npm run preview -- --host 127.0.0.1
    the page online. Choose **Later** to keep practicing, or **Reload to update**
    to activate the new version. Allow over a minute between test builds to avoid
    Workbox's rapid-update development heuristic.
+
+## Audio routing diagnostic
+
+Open **Listen mode → Test speaker / CarPlay** inside the installed app, or visit
+`/audio-test`. This uses a native HTML audio player and a bundled 8.4-second MP3,
+without invoking browser speech synthesis, changing the audio session, or using
+a backend. The sample is also precached for offline use. Compare the iPhone's
+speaker with CarPlay while parked; automated tests cannot confirm physical routing.
+
+The sample was generated locally using macOS's Samantha voice and encoded with
+FFmpeg. Its transcript is displayed on the test page. It is only a diagnostic
+recording, not a new text-to-speech dependency for verse playback.

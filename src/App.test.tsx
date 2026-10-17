@@ -17,6 +17,27 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start memorizing →' }))
   }
 
+  it('opens the ordinary-audio diagnostic without requiring a practice session', () => {
+    window.history.pushState(null, '', '/audio-test')
+    const speak = vi.fn()
+    vi.stubGlobal('speechSynthesis', { speak })
+    try {
+      render(<App />)
+      expect(screen.getByRole('heading', { name: 'Audio output test' })).toBeInTheDocument()
+      const player = screen.getByLabelText('Speaker test recording')
+      expect(player).toHaveAttribute('controls')
+      expect(player).toHaveAttribute('src', '/audio/speaker-test.mp3')
+      expect(player).not.toHaveAttribute('autoplay')
+      fireEvent.playing(player)
+      expect(speak).not.toHaveBeenCalled()
+      fireEvent.error(player)
+      expect(screen.getByRole('alert')).toHaveTextContent('The test clip could not load')
+      expect(screen.getByRole('link', { name: 'Open audio file directly' })).toHaveAttribute('href', '/audio/speaker-test.mp3')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('uses the saved parts in listen mode without advancing recall progress', () => {
     render(<App />)
     startWeekly()
@@ -53,6 +74,54 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Learn chunks' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Show full verse' }))
     expect(answer).toHaveValue('first words')
+  })
+
+  it('closes the full verse reader without advancing practice or losing focus', () => {
+    render(<App />)
+    startWeekly()
+    const trigger = screen.getByRole('button', { name: 'Show full verse' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    const reader = screen.getByRole('dialog', { name: 'Full verse' })
+    const saved = localStorage.getItem('verse-memory-v2')
+    expect(document.body.style.overflow).toBe('hidden')
+    fireEvent.keyDown(reader, { key: 's' })
+    fireEvent.keyDown(document, { key: 's' })
+    fireEvent.keyDown(document, { code: 'Space', key: ' ' })
+    expect(localStorage.getItem('verse-memory-v2')).toBe(saved)
+    fireEvent.click(within(reader).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
+    expect(trigger).toHaveFocus()
+    fireEvent.click(trigger)
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('starts with the mobile header collapsed and allows expansion', () => {
+    render(<App />)
+    const toggle = screen.getByRole('button', { name: 'Menu +' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByRole('link', { name: 'My verses' }))
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('persists dark mode across routes and reloads', () => {
+    const view = render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Dark mode' }))
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+    expect(localStorage.getItem('verse-memory-theme')).toBe('dark')
+    fireEvent.click(screen.getByRole('link', { name: 'My verses' }))
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+    view.unmount()
+    window.history.pushState(null, '', '/audio-test')
+    render(<App />)
+    const toggle = screen.getByRole('button', { name: 'Dark mode' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(toggle)
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
   })
 
   it('skips stages with shortcuts, persists the result, and keeps final recall required', () => {

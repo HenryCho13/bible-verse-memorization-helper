@@ -60,13 +60,13 @@ describe('Listen mode', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('speaks only the selected part once per tap, at the selected speed', () => {
+  it('speaks only the selected part once per tap, always at normal speed', () => {
     open()
     expect(speech.speak).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Previous part' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: 'Slow' }))
+    expect(screen.queryByRole('button', { name: 'Slow' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Hear this part' }))
-    expect(spoken[0]).toMatchObject({ text: chunks[0], rate: 0.7, lang: 'en-US' })
+    expect(spoken[0]).toMatchObject({ text: chunks[0], rate: 1, lang: 'en-US' })
     act(() => spoken[0].onend?.())
     expect(screen.getByRole('button', { name: 'Hear this part' })).toBeEnabled()
     expect(speech.speak).toHaveBeenCalledTimes(1)
@@ -94,17 +94,47 @@ describe('Listen mode', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('restarts at the new speed and remembers it when returning', () => {
-    const view = open(1)
+  it('ignores an old slow-speed preference', () => {
+    localStorage.setItem('verse-memory-listen-speed', 'slow')
+    open(1)
     fireEvent.click(screen.getByRole('button', { name: 'Hear this part' }))
-    expect(spoken[0].rate).toBe(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Slow' }))
+    expect(spoken[0]).toMatchObject({ text: chunks[1], rate: 1 })
+    expect(screen.queryByText('Playback speed')).not.toBeInTheDocument()
+  })
+
+  it('extends both ends, speaks in verse order, and resets to the original part', () => {
+    const parts = ['First part.', 'Second part.', 'Third part.', 'Fourth part.']
+    render(<ListenMode chunks={parts} initialPart={1} onExit={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Hear this part' }))
+    const oldEnd = spoken[0].onend
+    fireEvent.click(screen.getByRole('button', { name: '+ Add previous' }))
     expect(speech.cancel).toHaveBeenCalledTimes(1)
-    expect(spoken[1]).toMatchObject({ text: chunks[1], rate: 0.7 })
-    view.unmount()
+    expect(screen.getByRole('button', { name: '+ Add previous' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '+ Add next' }))
+    fireEvent.click(screen.getByRole('button', { name: '+ Add next' }))
+    expect(screen.getByText('Parts 1–4 of 4')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ Add next' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Previous part' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Next part' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Hear these parts' }))
+    expect(spoken[1]).toMatchObject({ text: parts.join(' '), rate: 1 })
+    act(() => oldEnd?.())
+    expect(screen.getByRole('button', { name: 'Stop playback' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to part 2' }))
     expect(speech.cancel).toHaveBeenCalledTimes(2)
-    open()
-    expect(screen.getByRole('button', { name: 'Slow' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Part 2 of 4')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Hear this part' }))
+    expect(spoken[2].text).toBe(parts[1])
+  })
+
+  it('navigates beyond the selected range and returns to a single part', () => {
+    render(<ListenMode chunks={['One.', 'Two.', 'Three.', 'Four.']} initialPart={0} onExit={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: '+ Add next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next part' }))
+    expect(screen.getByText('Part 3 of 4')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '+ Add next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Previous part' }))
+    expect(screen.getByText('Part 2 of 4')).toBeInTheDocument()
   })
 
   it('stops playback when leaving the page', () => {
